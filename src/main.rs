@@ -7,9 +7,9 @@ use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, CpuRefreshKind, RefreshKind, System, SystemExt};
 use tokio::process::Command;
-use tokio::spawn;
 use tokio::time::sleep;
 use tokio::time::Duration;
+use tracing::debug;
 use tracing::info;
 use tracing::trace;
 use tracing_subscriber::fmt;
@@ -31,7 +31,7 @@ struct Config {
     // 同时执行几个php
     pool: i32,
     // 间隔
-    interval: i32,
+    interval: u64,
     // cpu 0-100
     threshold: f32,
 }
@@ -81,7 +81,7 @@ async fn create_task(
     command: String,
     args: Vec<String>,
     threshold: f32,
-    interval: i32,
+    interval: u64,
 ) {
     let mut system =
         System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
@@ -94,6 +94,7 @@ async fn create_task(
         let cmd = cmd.args(&args);
         trace!("{:#?}", cmd);
         if cpu < threshold {
+            let start = std::time::SystemTime::now();
             match cmd.spawn() {
                 Ok(child) => match child.wait_with_output().await {
                     Ok(output) => {
@@ -103,9 +104,23 @@ async fn create_task(
                 },
                 Err(e) => info!("{} failed to start: {}", runner, e),
             };
+            let used = std::time::SystemTime::now().duration_since(start);
+            match used {
+                Ok(used) => {
+                    debug!("{} used {} secs", runner, used.as_secs());
+                    let rest = Duration::from_secs(interval) - used;
+                    if rest.as_secs() > 0 {
+                        sleep(rest).await;
+                    }
+                }
+                Err(e) => {
+                    info!("{} time error {:#?}", runner, e);
+                    sleep(Duration::from_secs(interval)).await;
+                }
+            }
         } else {
             info!("{}, sleep", cpu);
-            sleep(Duration::from_secs(interval as u64)).await;
+            sleep(Duration::from_secs(interval)).await;
         }
         system.refresh_cpu();
     }
