@@ -108,9 +108,9 @@ async fn create_task(
             match used {
                 Ok(used) => {
                     debug!("{} used {} secs", runner, used.as_secs());
-                    let rest = Duration::from_secs(interval) - used;
-                    if rest.as_secs() > 0 {
-                        sleep(rest).await;
+                    let rest =  interval - used.as_secs();
+                    if rest > 0 {
+                        sleep(Duration::from_secs(rest)).await;
                     }
                 }
                 Err(e) => {
